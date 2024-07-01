@@ -80,7 +80,7 @@ def init_ccopy_task(
     )
 
 
-def step_supervised_ccopy_task(state: CopyTaskState) -> Tuple[CopyTaskState, Array, Array]:
+def step_supervised_ccopy_task(state: CopyTaskState) -> Tuple[CopyTaskState, Tuple[Array]]:
     """Returns the next input and target output for the copy task.
 
     Args:
