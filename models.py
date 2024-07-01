@@ -6,6 +6,9 @@ import jax
 import jax.numpy as jnp
 
 
+LSTMState = Tuple[Tuple[jax.Array]]
+
+
 class SupervisedLSTMModel(eqx.Module):
     vocab_size: int = eqx.field(static=True)
     embedding: nn.Embedding
@@ -32,7 +35,7 @@ class SupervisedLSTMModel(eqx.Module):
             (jnp.zeros(self.lstm_layers[1].hidden_size), jnp.zeros(self.lstm_layers[1].hidden_size)),
         )
 
-    # @jax.remat
+    @jax.remat
     def __call__(self, x: jnp.ndarray, rnn_state: Optional[jnp.ndarray] = None) -> jnp.ndarray:
         intermediates = []
         z = self.embedding(x)
@@ -82,14 +85,13 @@ if __name__ == '__main__':
     x = jnp.zeros((20,), dtype=jnp.int32)
     rnn_state = model.init_rnn_state()
 
+    # Test single forward pass
     forward = jax.jit(model.__call__)
-
     print('Input shape:', x[0].shape)
     state, _, y = forward(x[0], rnn_state)
     print(f'Output shape: {y.shape} | Hidden state 1 shape: {state[0][0].shape} | Cell state 1 shape: {state[1][0].shape}')
 
-    
+    # Test sequence forward pass
     forward_sequence = eqx.filter_jit(model.forward_sequence)
-    
     state, zs, ys = forward_sequence(rnn_state, x)
     print(f'Output shape: {ys.shape} | Hidden state 1 shape: {state[0][0].shape} | Cell state 1 shape: {state[1][0].shape}')

@@ -1,22 +1,20 @@
 from functools import partial
 from typing import Tuple
 
-import chex
 import jax
 from jax import Array
 import jax.interpreters
 import jax.numpy as jnp
-from flax import struct
+import equinox as eqx
 
 
-@struct.dataclass
-class CopyTaskState:
+class CopyTaskState(eqx.Module):
     rng: Array
 
     # Params
-    vocab_size: int = struct.field(pytree_node=False)
-    min_seq_len: int = struct.field(pytree_node=False)
-    max_seq_len: int = struct.field(pytree_node=False)
+    vocab_size: int = eqx.field(static=True)
+    min_seq_len: int = eqx.field(static=True)
+    max_seq_len: int = eqx.field(static=True)
 
     # State vars
     first_sequence: Array # Sequence to remember
@@ -97,7 +95,7 @@ def step_supervised_ccopy_task(state: CopyTaskState) -> Tuple[CopyTaskState, Arr
         lambda: init_ccopy_task(state.rng, state.vocab_size, state.min_seq_len, state.max_seq_len),
     )
 
-    state = state.replace(curr_idx=state.curr_idx + 1)
+    state = eqx.tree_at(lambda s: s.curr_idx, state, state.curr_idx + 1)
     x = jax.lax.cond(
         state.curr_idx - 1 < state.seq_len,
         lambda: state.first_sequence[state.curr_idx - 1],
@@ -108,8 +106,13 @@ def step_supervised_ccopy_task(state: CopyTaskState) -> Tuple[CopyTaskState, Arr
         lambda: 0,
         lambda: state.second_sequence[state.curr_idx % state.seq_len],
     )
+    loss_mask = jax.lax.cond(
+        state.curr_idx <= state.seq_len,
+        lambda: 0.0,
+        lambda: 1.0,
+    )
 
-    return state, jnp.array(x), jnp.array(y)
+    return state, (x, y, loss_mask)
 
 
 if __name__ == '__main__':
@@ -124,11 +127,12 @@ if __name__ == '__main__':
     # %timeit jax.block_until_ready(step_func(state))
 
     import time
+    n = int(1e6)
     start = time.time()
-    for _ in range(100000):
-        state, x, y = step_func(state)
+    for _ in range(n):
+        state, x, y, loss_mask = step_func(state)
         
-    print((time.time() - start) / 100000)
+    print((time.time() - start) / n)
 
 
     # for _ in range(30):
