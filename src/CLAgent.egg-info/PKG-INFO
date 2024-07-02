@@ -1,0 +1,7 @@
+Metadata-Version: 2.1
+Name: CLAgent
+Version: 0.1.0
+Summary: An efficient continual learning agent built with JAX.
+Author: Edan Meyer
+Author-email: ejmejm98@gmail.com
+Requires-Python: >=3.9

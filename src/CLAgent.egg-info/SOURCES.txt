@@ -1,0 +1,15 @@
+.gitignore
+setup.py
+src/CLAgent.egg-info/PKG-INFO
+src/CLAgent.egg-info/SOURCES.txt
+src/CLAgent.egg-info/dependency_links.txt
+src/CLAgent.egg-info/top_level.txt
+src/cl_agent/__init__.py
+src/cl_agent/copy_task.py
+src/cl_agent/function_learning_task.py
+src/cl_agent/models.py
+src/cl_agent/utils.py
+src/cl_agent/training/__init__.py
+src/cl_agent/training/recurrent_backprop.py
+src/cl_agent/training/swift_td.py
+src/cl_agent/training/training.py
