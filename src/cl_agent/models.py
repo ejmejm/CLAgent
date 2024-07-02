@@ -75,74 +75,6 @@ class SupervisedLSTMModel(eqx.Module):
             return rnn_state, (z, y)
         state, (zs, ys) = jax.lax.scan(step, rnn_state, xs)
         return state, zs, ys
-    
-
-class FeatureExtractor(eqx.Module):
-    obs_dim: int = eqx.field(static=True)
-    layer_sizes: Sequence[int] = eqx.field(static=True)
-    recurrent_layer_indices: List[int] = eqx.field(static=True)
-    output_dim: int = eqx.field(static=True)
-    n_layers: int = eqx.field(static=True)
-    layers: List[eqx.Module]
-
-    def __init__(
-            self,
-            key: Array,
-            obs_dim: Union[int, Sequence[int]],
-            layer_sizes: Sequence[int],
-            output_dim: int,
-            recurrent_layer_indices: List[int],
-        ):
-        if isinstance(obs_dim, int):
-            obs_dim = (obs_dim,)
-
-        self.obs_dim = math.prod(obs_dim)
-        self.output_dim = output_dim
-        self.recurrent_layer_indices = recurrent_layer_indices
-        self.n_layers = len(layer_sizes) + 1
-
-        gen_keys = jax.random.split(key, len(layer_sizes) - 1)
-        self.layer_sizes = [self.obs_dim] + layer_sizes + [output_dim]
-        
-        self.layers = []
-        for i in range(1, len(self.layer_sizes)):
-            if i - 1 in self.recurrent_layer_indices:
-                self.layers.append(nn.LSTMCell(self.layer_sizes[i - 1], self.layer_sizes[i], key=gen_keys[i - 1]))
-            else:
-                self.layers.append(nn.Linear(self.layer_sizes[i - 1], self.layer_sizes[i], key=gen_keys[i - 1]))
-
-    def init_rnn_state(self):
-        return tuple([
-            (jnp.zeros(self.layer_sizes[i]),
-             jnp.zeros(self.layer_sizes[i]))
-            for i in self.recurrent_layer_indices
-        ])
-    
-    @jax.remat
-    def __call__(self, x: Array, rnn_state: Optional[LSTMState] = None) -> Array:
-        z = x.flatten()
-
-        recurrent_layer_idx = 0
-        new_rnn_state = []
-        intermediates = []
-        for i in range(self.n_layers):
-            layer = self.layers[i]
-
-            if i in self.recurrent_layer_indices:
-                z = layer(z, rnn_state[recurrent_layer_idx])
-                new_rnn_state.append(z)
-                z = z[0]
-                recurrent_layer_idx += 1
-            else:
-                z = layer(z)
-                print(z.shape)
-
-            if i < self.n_layers - 1:
-                z = jax.nn.relu(z)
-
-            intermediates.append(z)
-
-        return tuple(new_rnn_state), intermediates, z
 
 
 class RecurrentGVFModel(eqx.Module):
@@ -209,7 +141,150 @@ class RecurrentGVFModel(eqx.Module):
             return rnn_state, (z, y)
         state, (zs, ys) = jax.lax.scan(step, rnn_state, xs)
         return state, zs, ys
+
+
+class FeatureExtractor(eqx.Module):
+    obs_dim: int = eqx.field(static=True)
+    layer_sizes: Sequence[int] = eqx.field(static=True)
+    recurrent_layer_indices: List[int] = eqx.field(static=True)
+    output_dim: int = eqx.field(static=True)
+    n_layers: int = eqx.field(static=True)
+    layers: List[eqx.Module]
+
+    def __init__(
+            self,
+            key: Array,
+            obs_dim: Union[int, Sequence[int]],
+            layer_sizes: Sequence[int],
+            output_dim: int,
+            recurrent_layer_indices: List[int],
+        ):
+        """Extracts features from input observations using a series of linear layers and LSTM cells.
+
+        Args:
+            key (Array): The PRNG key used to initialize weights.
+            obs_dim (Union[int, Sequence[int]]): The dimensionality of the input observations.
+            layer_sizes (Sequence[int]): The sizes of all the layers.
+            output_dim (int): The (1D) dimensionality of the output features.
+            recurrent_layer_indices (List[int]): The indices of the layers that are LSTM cells.
+        """
+        if isinstance(obs_dim, int):
+            obs_dim = (obs_dim,)
+
+        self.obs_dim = math.prod(obs_dim)
+        self.output_dim = output_dim
+        self.recurrent_layer_indices = recurrent_layer_indices
+        self.n_layers = len(layer_sizes) + 1
+
+        gen_keys = jax.random.split(key, len(layer_sizes) - 1)
+        self.layer_sizes = [self.obs_dim] + layer_sizes + [output_dim]
+        
+        self.layers = []
+        for i in range(1, len(self.layer_sizes)):
+            if i - 1 in self.recurrent_layer_indices:
+                self.layers.append(nn.LSTMCell(self.layer_sizes[i - 1], self.layer_sizes[i], key=gen_keys[i - 1]))
+            else:
+                self.layers.append(nn.Linear(self.layer_sizes[i - 1], self.layer_sizes[i], key=gen_keys[i - 1]))
+
+    def init_rnn_state(self):
+        return tuple([
+            (jnp.zeros(self.layer_sizes[i]),
+             jnp.zeros(self.layer_sizes[i]))
+            for i in self.recurrent_layer_indices
+        ])
     
+    @jax.remat
+    def __call__(self, x: Array, rnn_state: Optional[LSTMState] = None) -> Array:
+        z = x.flatten()
+
+        recurrent_layer_idx = 0
+        new_rnn_state = []
+        intermediates = []
+        for i in range(self.n_layers):
+            layer = self.layers[i]
+
+            if i in self.recurrent_layer_indices:
+                z = layer(z, rnn_state[recurrent_layer_idx])
+                new_rnn_state.append(z)
+                z = z[0]
+                recurrent_layer_idx += 1
+            else:
+                z = layer(z)
+                print(z.shape)
+
+            if i < self.n_layers - 1:
+                z = jax.nn.relu(z)
+
+            intermediates.append(z)
+
+        return tuple(new_rnn_state), intermediates, z
+
+
+class ReLU(eqx.Module):
+    def __call__(self, x: Array, key = None) -> Array:
+        return jax.nn.relu(x)
+
+
+def make_mlp(key, layer_sizes, activation_fn=ReLU):
+    layers = []
+    for i in range(1, len(layer_sizes)):
+        last_layer = i == len(layer_sizes) - 1
+        layers.append(nn.Linear(layer_sizes[i - 1], layer_sizes[i], key=key, use_bias=not last_layer))
+        if not last_layer:
+            layers.append(activation_fn())
+    return layers
+
+
+class ActorCriticModel(eqx.Module):
+    action_dim: int = eqx.field(static=True)
+    feature_extractor: FeatureExtractor
+    actor: eqx.Module
+    critic: eqx.Module
+
+    def __init__(
+            self,
+            key: Array,
+            feature_extractor: FeatureExtractor,
+            action_dim: int,
+            actor_layer_sizes: Sequence[int],
+            critic_layer_sizes: Sequence[int],
+        ):
+        """A model that combines a feature extractor, actor, and critic.
+        
+        Args:
+            key (Array): The PRNG key used to initialize weights.
+            feature_extractor (FeatureExtractor): The feature extractor.
+            action_dim (int): The (1D) size of the action space.
+            actor_layer_sizes (Sequence[int]): The sizes of the hidden layers in the actor network.
+            critic_layer_sizes (Sequence[int]): The sizes of the hidden layers in the critic network.
+        """
+        self.feature_extractor = feature_extractor
+        self.action_dim = action_dim
+
+        gen_keys = jax.random.split(key, 3)
+        input_dim = feature_extractor.output_dim
+        self.actor = nn.Sequential(make_mlp(gen_keys[0], [input_dim] + list(actor_layer_sizes) + [action_dim]))
+        self.critic = nn.Sequential(make_mlp(gen_keys[1], [input_dim] + list(critic_layer_sizes) + [1]))
+
+    def init_rnn_state(self):
+        return self.feature_extractor.init_rnn_state()
+
+    def __call__(self, x: Array, rnn_state: Optional[LSTMState] = None) -> Tuple[LSTMState, List[Array], Array, Array]:
+        rnn_state, intermediates, z = self.feature_extractor(x, rnn_state)
+        act_logits = self.actor(z)
+        value = self.critic(z)[0]
+        return rnn_state, intermediates, act_logits, value
+    
+    def act_logits(self, x: Array, rnn_state: Optional[LSTMState] = None) -> Tuple[LSTMState, List[Array], Array]:
+        rnn_state, intermediates, z = self.feature_extractor(x, rnn_state)
+        act_logits = self.actor(z)
+        return rnn_state, act_logits
+    
+    def value(self, x: Array, rnn_state: Optional[LSTMState] = None) -> Tuple[LSTMState, List[Array], Array]:
+        rnn_state, intermediates, z = self.feature_extractor(x, rnn_state)
+        value = self.critic(z)[0]
+        return rnn_state, value
+
 
 if __name__ == '__main__':
     rng = jax.random.PRNGKey(0)
@@ -239,7 +314,18 @@ if __name__ == '__main__':
     
     x = jnp.zeros((10,), dtype=jnp.float32)
     rnn_state = feature_extractor.init_rnn_state()
-    forward = feature_extractor.__call__ # jax.jit(feature_extractor.__call__)
+    forward = jax.jit(feature_extractor.__call__)
     state, intermediates, y = forward(x, rnn_state)
     print(f'Output shape: {y.shape} | Hidden state 1 shape: {state[0][0].shape} | Cell state 1 shape: {state[0][1].shape}')
     print(f'Intermediates: {[i.shape for i in intermediates]}')
+
+    # Test ActorCriticModel
+    model_key, rng = jax.random.split(rng)
+    actor_critic = ActorCriticModel(model_key, feature_extractor, 3, [32, 32], [32, 32])
+    print(actor_critic)
+
+    x = jnp.zeros((10,), dtype=jnp.float32)
+    rnn_state = actor_critic.init_rnn_state()
+    forward = jax.jit(actor_critic.__call__)
+    state, intermediates, act_logits, value = forward(x, rnn_state)
+    print(f'Action logits shape: {act_logits.shape} | Value shape: {value.shape}')
