@@ -5,7 +5,7 @@ import jax
 from jax import Array
 import jax.numpy as jnp
 
-from utils import tree_replace
+from cl_agent.utils import tree_replace
 
 
 class SwiftTDState(eqx.Module):

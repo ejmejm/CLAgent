@@ -6,15 +6,15 @@ from jax import Array
 import jax.numpy as jnp
 import optax
 
-from models import LSTMState
+from cl_agent.models import ActorCriticModel, LSTMState
 
 
-def train_on_sequence(
+def supervised_train_on_sequence(
         model: eqx.Module,
         opt_state: optax.OptState,
         tx_update_fn: Callable,
         rnn_state: LSTMState,
-        sequence: Array,
+        sequence: Dict[str, Array],
         tbptt_window: int = 4,
     ):
     def loss_fn(model: eqx.Module, rnn_states: LSTMState, input_tokens: Array, target_tokens: Array, loss_mask: Array):
@@ -55,3 +55,36 @@ def train_on_sequence(
         jax.lax.scan(update_fn, (opt_state, model, rnn_state), subsequences)
 
     return new_opt_state, new_model, final_rnn_state, jnp.mean(loss)
+
+
+def reinforce_train_on_sequence(
+        model: ActorCriticModel,
+        opt_state: optax.OptState,
+        tx_update_fn: Callable,
+        gamma: float,
+        rnn_state: LSTMState,
+        obs_sequence: Array, # Starts at t or earlier, ends at t+1
+        action: Array,
+        reward: Array,
+    ):
+    def loss_fn(model: eqx.Module):
+        new_rnn_state, act_logits, value = model.forward_sequence(rnn_state, obs_sequence[:-1])
+
+        next_value = model.value(obs_sequence[-1], new_rnn_state)[1]
+        td_error = reward + gamma * next_value - value
+        value_loss = jnp.square(td_error)
+
+        act_log_prob = jax.nn.log_softmax(act_logits)[action]
+        policy_loss = -jax.lax.stop_gradient(td_error) * act_log_prob
+
+        loss = policy_loss + value_loss
+
+        return loss, new_rnn_state
+    
+    value_grad_fn = eqx.filter_value_and_grad(loss_fn, has_aux=True)
+
+    (loss, final_rnn_state), grads = value_grad_fn(model)
+    updates, new_opt_state = tx_update_fn(grads, opt_state, model)
+    # new_model = eqx.apply_updates(model, updates)
+
+    return updates, new_opt_state, final_rnn_state, loss

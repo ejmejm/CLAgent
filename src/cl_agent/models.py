@@ -77,70 +77,70 @@ class SupervisedLSTMModel(eqx.Module):
         return state, zs, ys
 
 
-class RecurrentGVFModel(eqx.Module):
-    obs_dim: int = eqx.field(static=True)
-    lstm_layers: List[nn.LSTMCell]
-    linear_layers: List[nn.Linear]
-    output_layer: nn.Linear
+# class RecurrentGVFModel(eqx.Module):
+#     obs_dim: int = eqx.field(static=True)
+#     lstm_layers: List[nn.LSTMCell]
+#     linear_layers: List[nn.Linear]
+#     output_layer: nn.Linear
 
-    def __init__(self, key: jax.Array, vocab_size: int, lstm_input_sizes: Tuple[int] = (128, 128)):
-        gen_keys = jax.random.split(key, 6)
+#     def __init__(self, key: jax.Array, vocab_size: int, lstm_input_sizes: Tuple[int] = (128, 128)):
+#         gen_keys = jax.random.split(key, 6)
 
-        self.vocab_size = vocab_size
-        self.embedding = nn.Embedding(self.vocab_size, lstm_input_sizes[0], key=gen_keys[0])
-        self.lstm_layers = []
-        self.linear_layers = []
+#         self.vocab_size = vocab_size
+#         self.embedding = nn.Embedding(self.vocab_size, lstm_input_sizes[0], key=gen_keys[0])
+#         self.lstm_layers = []
+#         self.linear_layers = []
 
-        self.lstm_layers.append(nn.LSTMCell(lstm_input_sizes[0], 128, key=gen_keys[1]))
-        self.linear_layers.append(nn.Linear(128, lstm_input_sizes[1], key=gen_keys[2]))
-        self.lstm_layers.append(nn.LSTMCell(lstm_input_sizes[1], 128, key=gen_keys[3]))
-        self.linear_layers.append(nn.Linear(128, 256, key=gen_keys[4]))
-        self.output_layer = nn.Linear(256, 1, use_bias=False, key=gen_keys[5])
+#         self.lstm_layers.append(nn.LSTMCell(lstm_input_sizes[0], 128, key=gen_keys[1]))
+#         self.linear_layers.append(nn.Linear(128, lstm_input_sizes[1], key=gen_keys[2]))
+#         self.lstm_layers.append(nn.LSTMCell(lstm_input_sizes[1], 128, key=gen_keys[3]))
+#         self.linear_layers.append(nn.Linear(128, 256, key=gen_keys[4]))
+#         self.output_layer = nn.Linear(256, 1, use_bias=False, key=gen_keys[5])
 
-    def init_rnn_state(self):
-        return (
-            (jnp.zeros(self.lstm_layers[0].hidden_size), jnp.zeros(self.lstm_layers[0].hidden_size)),
-            (jnp.zeros(self.lstm_layers[1].hidden_size), jnp.zeros(self.lstm_layers[1].hidden_size)),
-        )
+#     def init_rnn_state(self):
+#         return (
+#             (jnp.zeros(self.lstm_layers[0].hidden_size), jnp.zeros(self.lstm_layers[0].hidden_size)),
+#             (jnp.zeros(self.lstm_layers[1].hidden_size), jnp.zeros(self.lstm_layers[1].hidden_size)),
+#         )
 
-    @jax.remat
-    def __call__(self, x: jnp.ndarray, rnn_state: Optional[jnp.ndarray] = None) -> jnp.ndarray:
-        intermediates = []
-        z = self.embedding(x)
-        intermediates.append(z)
+#     @jax.remat
+#     def __call__(self, x: jnp.ndarray, rnn_state: Optional[jnp.ndarray] = None) -> jnp.ndarray:
+#         intermediates = []
+#         z = self.embedding(x)
+#         intermediates.append(z)
         
-        if rnn_state is None:
-            rnn_state = self.init_rnn_state()
+#         if rnn_state is None:
+#             rnn_state = self.init_rnn_state()
         
-        rnn_state_1 = self.lstm_layers[0](z, rnn_state[0])
-        z = rnn_state_1[0]
-        z = jax.nn.relu(z)
-        intermediates.append(z)
+#         rnn_state_1 = self.lstm_layers[0](z, rnn_state[0])
+#         z = rnn_state_1[0]
+#         z = jax.nn.relu(z)
+#         intermediates.append(z)
         
-        z = self.linear_layers[0](z)
-        z = jax.nn.relu(z)
-        intermediates.append(z)
+#         z = self.linear_layers[0](z)
+#         z = jax.nn.relu(z)
+#         intermediates.append(z)
 
-        rnn_state_2 = self.lstm_layers[1](z, rnn_state[1])
-        z = rnn_state_2[0]
-        z = jax.nn.relu(z)
-        intermediates.append(z)
+#         rnn_state_2 = self.lstm_layers[1](z, rnn_state[1])
+#         z = rnn_state_2[0]
+#         z = jax.nn.relu(z)
+#         intermediates.append(z)
 
-        z = self.linear_layers[1](z)
-        z = jax.nn.relu(z)
-        intermediates.append(z)
+#         z = self.linear_layers[1](z)
+#         z = jax.nn.relu(z)
+#         intermediates.append(z)
 
-        out = self.linear_layers[2](z)
-        intermediates.append(out)
+#         out = self.linear_layers[2](z)
+#         intermediates.append(out)
 
-        return (rnn_state_1, rnn_state_2), intermediates, out
+#         return (rnn_state_1, rnn_state_2), intermediates, out
 
-    def forward_sequence(self, rnn_state, xs):
-        def step(rnn_state, x):
-            rnn_state, z, y = self.__call__(x, rnn_state)
-            return rnn_state, (z, y)
-        state, (zs, ys) = jax.lax.scan(step, rnn_state, xs)
-        return state, zs, ys
+#     def forward_sequence(self, rnn_state, xs):
+#         def step(rnn_state, x):
+#             rnn_state, z, y = self.__call__(x, rnn_state)
+#             return rnn_state, (z, y)
+#         state, (zs, ys) = jax.lax.scan(step, rnn_state, xs)
+#         return state, zs, ys
 
 
 class FeatureExtractor(eqx.Module):
@@ -284,6 +284,21 @@ class ActorCriticModel(eqx.Module):
         rnn_state, intermediates, z = self.feature_extractor(x, rnn_state)
         value = self.critic(z)[0]
         return rnn_state, value
+    
+    def value_features(self, x: Array, rnn_state: Optional[LSTMState] = None) -> Tuple[LSTMState, List[Array], Array]:
+        """Calculates the outputs of the penultimate layer of the critic network."""
+        rnn_state, intermediates, z = self.feature_extractor(x, rnn_state)
+        features = self.critic[:-1](z)
+        return rnn_state, features
+
+    def forward_sequence(self, rnn_state, xs):
+        def step(rnn_state, x):
+            rnn_state, intermediates, z = self.feature_extractor(x, rnn_state)
+            return rnn_state, z
+        final_state, zs = jax.lax.scan(step, rnn_state, xs)
+        act_logits = self.actor(zs[-1])
+        value = self.critic(zs[-1])[0]
+        return final_state, act_logits, value
 
 
 if __name__ == '__main__':
