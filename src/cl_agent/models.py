@@ -210,7 +210,6 @@ class FeatureExtractor(eqx.Module):
                 recurrent_layer_idx += 1
             else:
                 z = layer(z)
-                print(z.shape)
 
             if i < self.n_layers - 1:
                 z = jax.nn.relu(z)
