@@ -1,6 +1,8 @@
 from typing import Callable, Optional, Sequence, Tuple
 
+import chex
 import equinox as eqx
+import gymnasium as gym
 import jax
 from jax import Array
 import jax.numpy as jnp
@@ -9,11 +11,12 @@ import optax
 
 from cl_agent.models import ActorCriticModel, LSTMState
 from cl_agent.utils import tree_replace
-from recurrent_backprop import reinforce_train_on_sequence
-from swift_td import SwiftTDState, swift_td_step
+from cl_agent.training.recurrent_backprop import reinforce_train_on_sequence
+from cl_agent.training.swift_td import SwiftTDState, swift_td_step
 
 
 class TrainState(eqx.Module):
+    rng: chex.PRNGKey
     opt_state: optax.OptState
     obs_history: Array
     history_rnn_state: LSTMState
@@ -28,6 +31,7 @@ class TrainState(eqx.Module):
 
     def __init__(
             self,
+            rng: chex.PRNGKey,
             model: ActorCriticModel,
             opt_state: optax.OptState,
             tx_update_fn: Callable,
@@ -40,6 +44,7 @@ class TrainState(eqx.Module):
         ):
         assert tbptt_window > 0, f"tbptt_window must be at least 1 (which means use no history)! Got: {tbptt_window}"
 
+        self.rng = rng
         self.use_swift_td = use_swift_td
         self.swift_td_state = swift_td_state
         self.opt_state = opt_state
@@ -114,6 +119,7 @@ def train_reinforce_step(
         swift_td_updates = value_linear_weights - weights
         weight_updates = eqx.tree_at(lambda x: x.critic[-1].weight, weight_updates, swift_td_updates)
     else:
+        new_rnn_state = model.value_features(obs_history[-1], rnn_state)[0]
         swift_td_loss = 0
 
     # Apply updates to the model
@@ -127,6 +133,51 @@ def train_reinforce_step(
 
     # Return updated state, rnn_state, and model
     return train_state, new_rnn_state, new_model, reinforce_loss, swift_td_loss
+
+
+def train_loop(
+        train_state: TrainState,
+        rnn_state: LSTMState,
+        model: ActorCriticModel,
+        env: gym.Env,
+        curr_obs: Array,
+        n_steps: int,
+    ) -> Tuple[TrainState, LSTMState, ActorCriticModel]:
+    """Perform a training loop.
+    
+    Args:
+        train_state: The current training state.
+        rnn_state: The current RNN state.
+        model: The current model.
+        obs: Observation at step t+1 from the environment.
+        reward: Reward at step t+1 from the environment.
+        n_steps: Number of steps to train for.
+
+    Returns:
+        The new training state, RNN state, and model.
+    """
+    def env_train_step(state, _):
+        train_state, rnn_state, model, env, prev_obs = state
+        act_key, rng = jax.random.split(train_state.rng)
+
+        new_rnn_state, act_logits = model.act_logits(prev_obs, rnn_state)
+        action = jax.random.categorical(act_key, act_logits)
+        env, obs, reward = env.step(action)[:3]
+        train_state = tree_replace(train_state, rng=rng)
+
+        train_state, _, model, reinforce_loss, swift_td_loss = train_reinforce_step(
+            train_state, new_rnn_state, model, obs, action, reward)
+        
+        return (train_state, new_rnn_state, model, env, obs), {
+            'reinforce_loss': reinforce_loss,
+            'swift_td_loss': swift_td_loss,
+            'reward': reward,
+        }
+
+    (train_state, rnn_state, model, env, obs), metrics = jax.lax.scan(
+        env_train_step, (train_state, rnn_state, model, env, curr_obs), length=n_steps)
+
+    return train_state, rnn_state, model, env, obs, metrics
 
 
 if __name__ == '__main__':
