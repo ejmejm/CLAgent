@@ -294,6 +294,7 @@ class ActorCriticModel(eqx.Module):
         def step(rnn_state, x):
             rnn_state, intermediates, z = self.feature_extractor(x, rnn_state)
             return rnn_state, z
+        
         final_state, zs = jax.lax.scan(step, rnn_state, xs)
         act_logits = self.actor(zs[-1])
         value = self.critic(zs[-1])[0]

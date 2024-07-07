@@ -1,13 +1,12 @@
 import argparse
 from typing import Dict, List
 
-import equinox as eqx
 import gymnax
 import jax
 import numpy as np
 from tabulate import tabulate
 
-from cl_agent.envs import EquinoxEnv, GymnaxContinualEnvWrapper
+from cl_agent.envs import EquinoxEnv, GymnaxContinualEnvWrapper, PenalizeTerminationWrapper
 from cl_agent.models import FeatureExtractor, ActorCriticModel
 from cl_agent.training.training import TrainState, train_loop
 from cl_agent.training.swift_td import SwiftTDState
@@ -28,7 +27,7 @@ def parse_args():
     parser.add_argument(
         '--train_steps', type=int, default=1000000, help="Number of training steps")
     parser.add_argument(
-        '--log_freq', type=int, default=1000, help="Number of steps between logging metrics")
+        '--log_freq', type=int, default=10000, help="Number of steps between logging metrics")
     
     # Feature extractor model params
     parser.add_argument(
@@ -40,7 +39,7 @@ def parse_args():
         help="Size of the latent dimension of the feature extractor",
     )
     parser.add_argument(
-        '--fe_recurrent_layer_indices', type=int, nargs='+', default=[1],
+        '--fe_recurrent_layer_indices', type=int, nargs='*', default=[1],
         help="Indices of the feature extractor layers that are recurrent",
     )
 
@@ -60,7 +59,7 @@ def parse_args():
     parser.add_argument(
         '--feature_update_freq', type=int, default=1, help="Frequency of feature updates")
     parser.add_argument(
-        '--tbptt_windows', type=int, default=4,
+        '--tbptt_window', type=int, default=4,
         help="Size of truncated backprop through time window (1 is the minimum)",
     )
 
@@ -116,7 +115,12 @@ def train(args: argparse.Namespace):
     # Init the environment
     env, env_params = gymnax.make(args.env_name)
     env = GymnaxContinualEnvWrapper(env)
+    if args.env_name.lower() in ['cartpole-v1']:
+        env = PenalizeTerminationWrapper(env)
     env = EquinoxEnv(env_key, env, env_params)
+
+    print(f"Observation space: {env.observation_space.shape}")
+    print(f"Action space: {env.action_space.shape}")
     
 
     ### Initialize the model ###
@@ -163,7 +167,7 @@ def train(args: argparse.Namespace):
         obs_shape = env.observation_space.shape,
         gamma = args.gamma,
         feature_update_freq = args.feature_update_freq,
-        tbptt_window = args.tbptt_windows,
+        tbptt_window = args.tbptt_window,
         use_swift_td = args.use_swift_td,
         swift_td_state = swift_td_state,
     )

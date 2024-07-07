@@ -71,7 +71,7 @@ def reinforce_train_on_sequence(
         new_rnn_state, act_logits, value = model.forward_sequence(rnn_state, obs_sequence[:-1])
 
         next_value = model.value(obs_sequence[-1], new_rnn_state)[1]
-        td_error = reward + gamma * next_value - value
+        td_error = reward + gamma * jax.lax.stop_gradient(next_value) - value
         value_loss = jnp.square(td_error)
 
         act_log_prob = jax.nn.log_softmax(act_logits)[action]

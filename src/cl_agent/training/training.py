@@ -94,7 +94,7 @@ def train_reinforce_step(
     # Calculate backprop (+ optimizer) updates for the entire model when it's time to update the features
     weight_updates, new_opt_state, _, reinforce_loss = jax.lax.cond(
         # Should train condition:
-        train_state.feature_update_freq > 0 and train_state.train_step % train_state.feature_update_freq == 0,
+        (train_state.feature_update_freq > 0) and (train_state.train_step % train_state.feature_update_freq == 0),
         # If train function:
         lambda: reinforce_train_on_sequence(
             model, train_state.opt_state, train_state.tx_update_fn, train_state.gamma,
@@ -161,6 +161,7 @@ def train_loop(
         act_key, rng = jax.random.split(train_state.rng)
 
         new_rnn_state, act_logits = model.act_logits(prev_obs, rnn_state)
+
         action = jax.random.categorical(act_key, act_logits)
         env, obs, reward = env.step(action)[:3]
         train_state = tree_replace(train_state, rng=rng)
