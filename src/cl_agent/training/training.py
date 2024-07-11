@@ -63,6 +63,7 @@ def train_reinforce_step(
         train_state: TrainState,
         rnn_state: LSTMState,
         model: ActorCriticModel,
+        target_model: ActorCriticModel,
         obs: Array,
         action: Array,
         reward: Array,
@@ -73,6 +74,7 @@ def train_reinforce_step(
         train_state: The current training state.
         rnn_state: The current RNN state.
         model: The current model.
+        target_model: The target model.
         obs: Observation at step t+1 from the environment.
         reward: Reward at step t+1 from the environment.
 
@@ -97,7 +99,7 @@ def train_reinforce_step(
         (train_state.feature_update_freq > 0) and (train_state.train_step % train_state.feature_update_freq == 0),
         # If train function:
         lambda: reinforce_train_on_sequence(
-            model, train_state.opt_state, train_state.tx_update_fn, train_state.gamma,
+            model, target_model, train_state.opt_state, train_state.tx_update_fn, train_state.gamma,
             train_state.history_rnn_state, obs_history, action, reward),
         # Noop function:
         reinforce_noop,
@@ -154,7 +156,7 @@ def train_loop(
         The new training state, RNN state, and model.
     """
     def env_train_step(state, _):
-        train_state, rnn_state, model, env, prev_obs, update_buffer = state
+        train_state, rnn_state, model, target_model, env, prev_obs, update_buffer = state
         act_key, rng = jax.random.split(train_state.rng)
 
         new_rnn_state, act_logits = model.act_logits(prev_obs, rnn_state)
@@ -164,7 +166,7 @@ def train_loop(
         train_state = tree_replace(train_state, rng=rng)
 
         train_state, _, weight_updates, reinforce_loss, swift_td_loss = train_reinforce_step(
-            train_state, new_rnn_state, model, obs, action, reward)
+            train_state, new_rnn_state, model, target_model, obs, action, reward)
         update_buffer = jax.tree.map(lambda x, y: x + y, update_buffer, weight_updates)
 
         model, update_buffer = jax.lax.cond(
@@ -173,15 +175,15 @@ def train_loop(
             lambda: (model, update_buffer),
         )
         
-        return (train_state, new_rnn_state, model, env, obs, update_buffer), {
+        return (train_state, new_rnn_state, model, target_model, env, obs, update_buffer), {
             'reinforce_loss': reinforce_loss,
             'swift_td_loss': swift_td_loss,
             'reward': reward,
         }
 
-    update_buffer = jax.tree_map(lambda x: jnp.zeros_like(x), model)
-    (train_state, rnn_state, model, env, obs, update_buffer), metrics = jax.lax.scan(
-        env_train_step, (train_state, rnn_state, model, env, curr_obs, update_buffer), length=n_steps)
+    update_buffer = jax.tree.map(lambda x: jnp.zeros_like(x), model)
+    (train_state, rnn_state, model, target_model, env, obs, update_buffer), metrics = jax.lax.scan(
+        env_train_step, (train_state, rnn_state, model, model, env, curr_obs, update_buffer), length=n_steps)
 
     return train_state, rnn_state, model, env, obs, metrics
 

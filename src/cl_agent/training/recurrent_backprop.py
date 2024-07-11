@@ -59,6 +59,7 @@ def supervised_train_on_sequence(
 
 def reinforce_train_on_sequence(
         model: ActorCriticModel,
+        target_model: ActorCriticModel,
         opt_state: optax.OptState,
         tx_update_fn: Callable,
         gamma: float,
@@ -70,7 +71,7 @@ def reinforce_train_on_sequence(
     def loss_fn(model: eqx.Module):
         new_rnn_state, act_logits, value = model.forward_sequence(rnn_state, obs_sequence[:-1])
 
-        next_value = model.value(obs_sequence[-1], new_rnn_state)[1]
+        next_value = target_model.value(obs_sequence[-1], new_rnn_state)[1]
         td_error = reward + gamma * jax.lax.stop_gradient(next_value) - value
         value_loss = jnp.square(td_error)
 
